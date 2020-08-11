@@ -12,8 +12,9 @@ class Context;
 class IFunctionOverloadResolver;
 using FunctionOverloadResolverPtr = std::shared_ptr<IFunctionOverloadResolver>;
 
-struct ArrayJoinAction
+class ArrayJoinAction
 {
+public:
     NameSet columns;
     bool is_left = false;
     bool is_unaligned = false;
