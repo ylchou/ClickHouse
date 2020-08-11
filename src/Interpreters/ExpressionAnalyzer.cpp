@@ -482,7 +482,11 @@ ArrayJoinActionPtr SelectQueryExpressionAnalyzer::appendArrayJoin(ExpressionActi
 
     getRootActions(array_join_expression_list, only_types, step.actions);
 
-    return addMultipleArrayJoinAction(step.actions, is_array_join_left);
+    auto array_join =  addMultipleArrayJoinAction(step.actions, is_array_join_left);
+    for (const auto & column : array_join->columns)
+        step.required_output.emplace_back(column);
+
+    return array_join;
 }
 
 void ExpressionAnalyzer::addJoinAction(ExpressionActionsPtr & actions, JoinPtr join) const
