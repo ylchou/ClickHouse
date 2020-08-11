@@ -173,18 +173,21 @@ void ExpressionAnalyzer::analyzeAggregation()
 
     if (select_query)
     {
+        NamesAndTypesList array_join_columns;
+
         bool is_array_join_left;
-        ASTPtr array_join_expression_list = select_query->arrayJoinExpressionList(is_array_join_left);
-        if (array_join_expression_list)
+        if (ASTPtr array_join_expression_list = select_query->arrayJoinExpressionList(is_array_join_left))
         {
             getRootActionsNoMakeSet(array_join_expression_list, true, temp_actions, false);
             addMultipleArrayJoinAction(temp_actions, is_array_join_left);
 
-            array_join_columns.clear();
             for (auto & column : temp_actions->getSampleBlock().getNamesAndTypesList())
                 if (syntax->array_join_result_to_source.count(column.name))
                     array_join_columns.emplace_back(column);
         }
+
+        columns_after_array_join = sourceColumns();
+        columns_after_array_join.insert(columns_after_array_join.end(), array_join_columns.begin(), array_join_columns.end());
 
         const ASTTablesInSelectQueryElement * join = select_query->join();
         if (join)
@@ -192,6 +195,10 @@ void ExpressionAnalyzer::analyzeAggregation()
             getRootActionsNoMakeSet(analyzedJoin().leftKeysList(), true, temp_actions, false);
             addJoinAction(temp_actions);
         }
+
+        columns_after_join = columns_after_array_join;
+        const auto & added_by_join = analyzedJoin().columnsAddedByJoin();
+        columns_after_join.insert(columns_after_join.end(), added_by_join.begin(), added_by_join.end());
     }
 
     has_aggregation = makeAggregateDescriptions(temp_actions);
@@ -281,16 +288,6 @@ void ExpressionAnalyzer::initGlobalSubqueriesAndExternalTables(bool do_global)
 }
 
 
-NamesAndTypesList ExpressionAnalyzer::sourceWithJoinedColumns() const
-{
-    auto result_columns = sourceColumns();
-    result_columns.insert(result_columns.end(), array_join_columns.begin(), array_join_columns.end());
-    result_columns.insert(result_columns.end(),
-                        analyzedJoin().columnsAddedByJoin().begin(), analyzedJoin().columnsAddedByJoin().end());
-    return result_columns;
-}
-
-
 void SelectQueryExpressionAnalyzer::tryMakeSetForIndexFromSubquery(const ASTPtr & subquery_or_table_name)
 {
     auto set_key = PreparedSetKey::forSubquery(*subquery_or_table_name);
@@ -374,7 +371,7 @@ void SelectQueryExpressionAnalyzer::makeSetsForIndex(const ASTPtr & node)
             }
             else
             {
-                ExpressionActionsPtr temp_actions = std::make_shared<ExpressionActions>(sourceWithJoinedColumns(), context);
+                ExpressionActionsPtr temp_actions = std::make_shared<ExpressionActions>(columns_after_join, context);
                 getRootActions(left_in_operand, true, temp_actions);
 
                 Block sample_block_with_calculated_columns = temp_actions->getSampleBlock();
@@ -755,10 +752,9 @@ bool SelectQueryExpressionAnalyzer::appendGroupBy(ExpressionActionsChain & chain
 
     if (optimize_aggregation_in_order)
     {
-        auto all_columns = sourceWithJoinedColumns();
         for (auto & child : asts)
         {
-            group_by_elements_actions.emplace_back(std::make_shared<ExpressionActions>(all_columns, context));
+            group_by_elements_actions.emplace_back(std::make_shared<ExpressionActions>(columns_after_join, context));
             getRootActions(child, only_types, group_by_elements_actions.back());
         }
     }
@@ -844,10 +840,9 @@ bool SelectQueryExpressionAnalyzer::appendOrderBy(ExpressionActionsChain & chain
 
     if (optimize_read_in_order)
     {
-        auto all_columns = sourceWithJoinedColumns();
         for (auto & child : select_query->orderBy()->children)
         {
-            order_by_elements_actions.emplace_back(std::make_shared<ExpressionActions>(all_columns, context));
+            order_by_elements_actions.emplace_back(std::make_shared<ExpressionActions>(columns_after_join, context));
             getRootActions(child, only_types, order_by_elements_actions.back());
         }
     }
