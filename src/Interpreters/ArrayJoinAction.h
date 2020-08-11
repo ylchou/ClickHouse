@@ -32,4 +32,6 @@ struct ArrayJoinAction
     void finalize(NameSet & needed_columns, NameSet & unmodified_columns, NameSet & final_columns);
 };
 
+using ArrayJoinActionPtr = std::shared_ptr<ArrayJoinAction>;
+
 }

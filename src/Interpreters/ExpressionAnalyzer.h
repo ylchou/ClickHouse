@@ -34,6 +34,9 @@ struct ASTTablesInSelectQueryElement;
 struct StorageInMemoryMetadata;
 using StorageMetadataPtr = std::shared_ptr<const StorageInMemoryMetadata>;
 
+class ArrayJoinAction;
+using ArrayJoinActionPtr = std::shared_ptr<ArrayJoinAction>;
+
 /// Create columns in block or return false if not possible
 bool sanitizeBlock(Block & block, bool throw_if_cannot_create_column = false);
 
@@ -134,7 +137,7 @@ protected:
     /// Find global subqueries in the GLOBAL IN/JOIN sections. Fills in external_tables.
     void initGlobalSubqueriesAndExternalTables(bool do_global);
 
-    void addMultipleArrayJoinAction(ExpressionActionsPtr & actions, bool is_left) const;
+    ArrayJoinActionPtr addMultipleArrayJoinAction(ExpressionActionsPtr & actions, bool is_left) const;
 
     void addJoinAction(ExpressionActionsPtr & actions, JoinPtr = {}) const;
 
@@ -176,6 +179,8 @@ struct ExpressionAnalysisResult
     bool optimize_read_in_order = false;
     bool optimize_aggregation_in_order = false;
 
+    ExpressionActionsPtr before_array_join;
+    ArrayJoinActionPtr array_join;
     ExpressionActionsPtr before_join;
     ExpressionActionsPtr join;
     ExpressionActionsPtr before_where;
@@ -306,7 +311,7 @@ private:
       */
 
     /// Before aggregation:
-    bool appendArrayJoin(ExpressionActionsChain & chain, bool only_types);
+    ArrayJoinActionPtr appendArrayJoin(ExpressionActionsChain & chain, bool only_types);
     bool appendJoinLeftKeys(ExpressionActionsChain & chain, bool only_types);
     bool appendJoin(ExpressionActionsChain & chain);
     /// Add preliminary rows filtration. Actions are created in other expression analyzer to prevent any possible alias injection.
