@@ -1128,21 +1128,27 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
                     }
                 }
 
-                new_actions.emplace_back(action);
+                /// new_actions.emplace_back(action);
 
-                action.type = ExpressionAction::ADD_ALIASES;
-                action.projection.swap(projection);
+                if (!projection.empty())
+                {
+                    action.type = ExpressionAction::ADD_ALIASES;
+                    action.projection.swap(projection);
+                    split_actions->add(std::move(action));
+                }
             }
-            split_actions->add(std::move(action));
+            else
+                split_actions->add(std::move(action));
         }
     }
 
     std::swap(actions, new_actions);
 
     /// Add input from split actions result.
-    for (const auto & column : split_actions->getSampleBlock())
-        if (!input_columns.contains(column.name))
-            input_columns.emplace_back(NameAndTypePair{column.name, column.type});
+    input_columns = split_actions->getSampleBlock().getNamesAndTypesList();
+    for (auto & column : input_columns)
+        if (array_joined_columns.count(column.name))
+            column.type = typeid_cast<const DataTypeArray *>(column.type.get())->getNestedType();
 
     return split_actions;
 }
