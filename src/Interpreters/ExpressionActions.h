@@ -390,7 +390,7 @@ struct ExpressionActionsChain
                     }
                     for (const auto & column : required_columns)
                     {
-                        if (names.count(column.name) != 0)
+                        if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
                             new_required_columns.emplace_back(column);
                     }
 
