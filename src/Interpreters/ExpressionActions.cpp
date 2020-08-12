@@ -1255,7 +1255,7 @@ void ExpressionActionsChain::addStep()
     if (steps.empty())
         throw Exception("Cannot add action to empty ExpressionActionsChain", ErrorCodes::LOGICAL_ERROR);
 
-    ColumnsWithTypeAndName columns = steps.back().actions->getSampleBlock().getColumnsWithTypeAndName();
+    ColumnsWithTypeAndName columns = steps.back().getResultColumns();
     steps.push_back(Step(std::make_shared<ExpressionActions>(columns, context)));
 }
 
@@ -1273,7 +1273,7 @@ void ExpressionActionsChain::finalize()
         if (i + 1 < static_cast<int>(steps.size()))
         {
             const NameSet & additional_input = steps[i + 1].additional_input;
-            for (const auto & it : steps[i + 1].actions->getRequiredColumnsWithTypes())
+            for (const auto & it : steps[i + 1].getRequiredColumns())
             {
                 if (additional_input.count(it.name) == 0)
                 {
@@ -1285,27 +1285,28 @@ void ExpressionActionsChain::finalize()
                 }
             }
         }
-        steps[i].actions->finalize(required_output);
+        steps[i].finalize(required_output);
     }
 
+    /// TODO: move to QueryPlan
     /// When possible, move the ARRAY JOIN from earlier steps to later steps.
-    for (size_t i = 1; i < steps.size(); ++i)
-    {
-        ExpressionAction action;
-        if (steps[i - 1].actions->popUnusedArrayJoin(steps[i - 1].required_output, action))
-            steps[i].actions->prependArrayJoin(action, steps[i - 1].actions->getSampleBlock());
-    }
+//    for (size_t i = 1; i < steps.size(); ++i)
+//    {
+//        ExpressionAction action;
+//        if (steps[i - 1].actions->popUnusedArrayJoin(steps[i - 1].required_output, action))
+//            steps[i].actions->prependArrayJoin(action, steps[i - 1].actions->getSampleBlock());
+//    }
 
     /// Adding the ejection of unnecessary columns to the beginning of each step.
     for (size_t i = 1; i < steps.size(); ++i)
     {
-        size_t columns_from_previous = steps[i - 1].actions->getSampleBlock().columns();
+        size_t columns_from_previous = steps[i - 1].getResultColumns().size();
 
         /// If unnecessary columns are formed at the output of the previous step, we'll add them to the beginning of this step.
         /// Except when we drop all the columns and lose the number of rows in the block.
-        if (!steps[i].actions->getRequiredColumnsWithTypes().empty()
-            && columns_from_previous > steps[i].actions->getRequiredColumnsWithTypes().size())
-            steps[i].actions->prependProjectInput();
+        if (!steps[i].getResultColumns().empty()
+            && columns_from_previous > steps[i].getRequiredColumns().size())
+            steps[i].prependProjectInput();
     }
 }
 
@@ -1319,7 +1320,7 @@ std::string ExpressionActionsChain::dumpChain() const
         ss << "required output:\n";
         for (const std::string & name : steps[i].required_output)
             ss << name << "\n";
-        ss << "\n" << steps[i].actions->dumpActions() << "\n";
+        ss << "\n" << steps[i].dump() << "\n";
     }
 
     return ss.str();

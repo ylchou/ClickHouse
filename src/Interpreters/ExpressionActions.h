@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Interpreters/ArrayJoinAction.h>
+#include <DataTypes/DataTypeArray.h>
 
 #if !defined(ARCADIA_BUILD)
 #    include "config_core.h"
@@ -288,10 +289,22 @@ using ExpressionActionsPtr = std::shared_ptr<ExpressionActions>;
   */
 struct ExpressionActionsChain
 {
-    ExpressionActionsChain(const Context & context_)
-        : context(context_) {}
+    explicit ExpressionActionsChain(const Context & context_) : context(context_) {}
+
     struct Step
     {
+        enum class Kind
+        {
+            ACTIONS,
+            ARRAY_JOIN,
+        };
+
+        Kind kind;
+
+        ArrayJoinActionPtr array_join;
+        NamesAndTypesList required_columns;
+        ColumnsWithTypeAndName columns_after_array_join;
+
         ExpressionActionsPtr actions;
         /// Columns were added to the block before current step in addition to prev step output.
         NameSet additional_input;
@@ -302,8 +315,112 @@ struct ExpressionActionsChain
         /// If not empty, has the same size with required_output; is filled in finalize().
         std::vector<bool> can_remove_required_output;
 
-        Step(const ExpressionActionsPtr & actions_ = nullptr, const Names & required_output_ = Names())
-            : actions(actions_), required_output(required_output_) {}
+    public:
+        explicit Step(const ExpressionActionsPtr & actions_ = nullptr, const Names & required_output_ = Names())
+            : kind(Kind::ACTIONS)
+            , actions(actions_)
+            , required_output(required_output_)
+        {
+        }
+
+        explicit Step(ArrayJoinActionPtr array_join_, ColumnsWithTypeAndName required_columns_)
+            : kind(Kind::ARRAY_JOIN)
+            , array_join(std::move(array_join_))
+            , columns_after_array_join(std::move(required_columns_))
+        {
+            for (auto & column : columns_after_array_join)
+            {
+                required_columns.emplace_back(NameAndTypePair(column.name, column.type));
+                if (const auto * array = typeid_cast<const DataTypeArray *>(column.type.get()))
+                {
+                    column.type = array->getNestedType();
+                    /// Arrays are materialized
+                    column.column = nullptr;
+                }
+            }
+        }
+
+        NamesAndTypesList getRequiredColumns() const
+        {
+            switch (kind)
+            {
+                case Kind::ACTIONS:
+                    return actions->getRequiredColumnsWithTypes();
+                case Kind::ARRAY_JOIN:
+                    return required_columns;
+            }
+
+            __builtin_unreachable();
+        }
+
+        ColumnsWithTypeAndName getResultColumns() const
+        {
+            switch (kind)
+            {
+                case Kind::ACTIONS:
+                    return actions->getSampleBlock().getColumnsWithTypeAndName();
+                case Kind::ARRAY_JOIN:
+                    return columns_after_array_join;
+            }
+
+            __builtin_unreachable();
+        }
+
+        void finalize(const Names & required_output_)
+        {
+            switch (kind)
+            {
+                case Kind::ACTIONS:
+                {
+                    actions->finalize(required_output_);
+                    return;
+                }
+                case Kind::ARRAY_JOIN:
+                {
+                    NamesAndTypesList new_required_columns;
+                    NameSet names(required_output_.begin(), required_output_.end());
+                    for (const auto & column : required_columns)
+                    {
+                        if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
+                            new_required_columns.emplace_back(column);
+                    }
+                    std::swap(required_columns, new_required_columns);
+                    return;
+                }
+            }
+        }
+
+        void prependProjectInput()
+        {
+            switch (kind)
+            {
+                case Kind::ACTIONS:
+                {
+                    actions->prependProjectInput();
+                    return;
+                }
+                case Kind::ARRAY_JOIN:
+                {
+                    /// TODO: remove unused columns before ARRAY JOIN ?
+                    return;
+                }
+            }
+        }
+
+        std::string dump() const
+        {
+            switch (kind)
+            {
+                case Kind::ACTIONS:
+                {
+                    return actions->dumpActions();
+                }
+                case Kind::ARRAY_JOIN:
+                {
+                    return "ARRAY JOIN";
+                }
+            }
+        }
     };
 
     using Steps = std::vector<Step>;
