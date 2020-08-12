@@ -1187,9 +1187,6 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
     if (!actions.empty())
         prependProjectInput();
 
-    if (!split_actions->getActions().empty())
-        split_actions->prependProjectInput();
-
     return split_actions;
 }
 
