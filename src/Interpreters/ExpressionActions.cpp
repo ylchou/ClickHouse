@@ -1111,7 +1111,7 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
                         array_join_dependent_columns.insert(pair.second);
                         depend_aliases.emplace_back(std::move(pair));
                     }
-                    else
+                    else if (!pair.second.empty())
                         split_aliases.emplace_back(std::move(pair));
                 }
             }
