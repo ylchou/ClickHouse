@@ -14,6 +14,7 @@
 #include "TotalsHavingStep.h"
 #include "ExpressionStep.h"
 #include "ArrayJoinStep.h"
+#include "FilterStep.h"
 
 namespace DB
 {
@@ -417,13 +418,15 @@ static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * 
     auto & parent = parent_node->step;
     auto & child = child_node->step;
     auto * expression_step = typeid_cast<ExpressionStep *>(parent.get());
+    auto * filter_step = typeid_cast<FilterStep *>(parent.get());
     auto * array_join_step = typeid_cast<ArrayJoinStep *>(child.get());
 
-    if (!expression_step || !array_join_step)
+    if (!(expression_step || filter_step) || !array_join_step)
         return;
 
     const auto & array_join = array_join_step->arrayJoin();
-    const auto & expression = expression_step->getExpression();
+    const auto & expression = expression_step ? expression_step->getExpression()
+                                              : filter_step->getExpression();
 
     auto split_actions = expression->splitActionsBeforeArrayJoin(array_join->columns);
 
@@ -432,7 +435,7 @@ static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * 
         return;
 
     /// All actions was moved before ARRAY JOIN. Swap Expression and ArrayJoin.
-    if (expression->getActions().empty())
+    if (expression_step && expression->getActions().empty())
     {
         /// Expression -> ArrayJoin
         std::swap(parent, child);
@@ -453,7 +456,8 @@ static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * 
     node.step = std::make_unique<ExpressionStep>(node.children.at(0)->step->getOutputStream(),
                                                  std::move(split_actions));
     array_join_step->updateInputStream(node.step->getOutputStream());
-    expression_step->updateInputStream(array_join_step->getOutputStream());
+    expression_step ? expression_step->updateInputStream(array_join_step->getOutputStream())
+                    : filter_step->updateInputStream(array_join_step->getOutputStream());
 }
 
 void QueryPlan::optimize()
@@ -485,7 +489,7 @@ void QueryPlan::optimize()
         }
         else
         {
-            /// First entrance, try lift up.
+            /// Last entrance, try lift up.
             if (frame.node->children.size() == 1)
                 tryLiftUpArrayJoin(frame.node, frame.node->children.front(), nodes);
 

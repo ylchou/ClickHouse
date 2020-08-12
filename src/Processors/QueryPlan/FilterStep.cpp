@@ -40,6 +40,17 @@ FilterStep::FilterStep(
     updateDistinctColumns(output_stream->header, output_stream->distinct_columns);
 }
 
+void FilterStep::updateInputStream(DataStream input_stream)
+{
+    output_stream = createOutputStream(
+            input_stream,
+            FilterTransform::transformHeader(input_stream.header, expression, filter_column_name, remove_filter_column),
+            getDataStreamTraits());
+
+    input_streams.clear();
+    input_streams.emplace_back(std::move(input_stream));
+}
+
 void FilterStep::transformPipeline(QueryPipeline & pipeline)
 {
     pipeline.addSimpleTransform([&](const Block & header, QueryPipeline::StreamType stream_type)
