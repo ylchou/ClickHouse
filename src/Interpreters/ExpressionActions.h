@@ -331,8 +331,10 @@ struct ExpressionActionsChain
             for (auto & column : columns_after_array_join)
             {
                 required_columns.emplace_back(NameAndTypePair(column.name, column.type));
-                if (const auto * array = typeid_cast<const DataTypeArray *>(column.type.get()))
+
+                if (array_join->columns.count(column.name) > 0)
                 {
+                    const auto * array = assert_cast<const DataTypeArray *>(column.type.get());
                     column.type = array->getNestedType();
                     /// Arrays are materialized
                     column.column = nullptr;
@@ -378,13 +380,22 @@ struct ExpressionActionsChain
                 case Kind::ARRAY_JOIN:
                 {
                     NamesAndTypesList new_required_columns;
+                    ColumnsWithTypeAndName new_result_columns;
+
                     NameSet names(required_output_.begin(), required_output_.end());
-                    for (const auto & column : required_columns)
+                    for (const auto & column : columns_after_array_join)
                     {
                         if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
+                            new_result_columns.emplace_back(column);
+                    }
+                    for (const auto & column : required_columns)
+                    {
+                        if (names.count(column.name) != 0)
                             new_required_columns.emplace_back(column);
                     }
+
                     std::swap(required_columns, new_required_columns);
+                    std::swap(columns_after_array_join, new_result_columns);
                     return;
                 }
             }
