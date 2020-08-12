@@ -32,6 +32,17 @@ ArrayJoinStep::ArrayJoinStep(const DataStream & input_stream_, ArrayJoinActionPt
 {
 }
 
+void ArrayJoinStep::updateInputStream(DataStream input_stream)
+{
+    output_stream = createOutputStream(
+            input_stream,
+            ArrayJoinTransform::transformHeader(input_stream.header, array_join),
+            getDataStreamTraits());
+
+    input_streams.clear();
+    input_streams.emplace_back(std::move(input_stream));
+}
+
 void ArrayJoinStep::transformPipeline(QueryPipeline & pipeline)
 {
     pipeline.addSimpleTransform([&](const Block & header, QueryPipeline::StreamType stream_type)

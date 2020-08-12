@@ -3,6 +3,8 @@
 #include <Processors/QueryPipeline.h>
 #include <IO/WriteBuffer.h>
 #include <IO/Operators.h>
+#include <Interpreters/ExpressionActions.h>
+#include <Interpreters/ArrayJoinAction.h>
 #include <stack>
 #include <Processors/QueryPlan/LimitStep.h>
 #include "MergingSortedStep.h"
@@ -10,6 +12,8 @@
 #include "MergeSortingStep.h"
 #include "PartialSortingStep.h"
 #include "TotalsHavingStep.h"
+#include "ExpressionStep.h"
+#include "ArrayJoinStep.h"
 
 namespace DB
 {
@@ -408,6 +412,29 @@ static void tryPushDownLimit(QueryPlanStepPtr & parent, QueryPlan::Node * child_
     parent.swap(child);
 }
 
+static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * child_node)
+{
+    auto & parent = parent_node->step;
+    auto & child = child_node->step;
+    auto * expression_step = typeid_cast<ExpressionStep *>(parent.get());
+    auto * array_join_step = typeid_cast<ArrayJoinStep *>(child.get());
+
+    if (!expression_step || !array_join_step)
+        return;
+
+    const auto & array_join = array_join_step->arrayJoin();
+    const auto & expression = expression_step->getExpression();
+
+    /// Check array joined columns are not needed for expression.
+    for (const auto & column : expression->getRequiredColumnsWithTypes())
+        if (array_join->columns.count(column.name) != 0)
+            return;
+
+    expression_step->updateInputStream(child_node->children.at(0)->step->getOutputStream());
+    array_join_step->updateInputStream(expression_step->getOutputStream());
+    std::swap(parent, child);
+}
+
 void QueryPlan::optimize()
 {
     struct Frame
@@ -436,7 +463,13 @@ void QueryPlan::optimize()
             ++frame.next_child;
         }
         else
+        {
+            /// First entrance, try lift up.
+            if (frame.node->children.size() == 1)
+                tryLiftUpArrayJoin(frame.node, frame.node->children.front());
+
             stack.pop();
+        }
     }
 }
 

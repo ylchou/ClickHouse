@@ -17,6 +17,10 @@ public:
 
     void describeActions(FormatSettings & settings) const override;
 
+    void updateInputStream(DataStream input_stream);
+
+    const ArrayJoinActionPtr & arrayJoin() const { return array_join; }
+
 private:
     ArrayJoinActionPtr array_join;
 };

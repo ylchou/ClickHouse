@@ -35,6 +35,17 @@ ExpressionStep::ExpressionStep(const DataStream & input_stream_, ExpressionActio
     updateDistinctColumns(output_stream->header, output_stream->distinct_columns);
 }
 
+void ExpressionStep::updateInputStream(DataStream input_stream)
+{
+    output_stream = createOutputStream(
+            input_stream,
+            Transform::transformHeader(input_stream.header, expression),
+            getDataStreamTraits());
+
+    input_streams.clear();
+    input_streams.emplace_back(std::move(input_stream));
+}
+
 void ExpressionStep::transformPipeline(QueryPipeline & pipeline)
 {
     pipeline.addSimpleTransform([&](const Block & header, QueryPipeline::StreamType stream_type)

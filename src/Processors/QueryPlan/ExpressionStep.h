@@ -21,7 +21,11 @@ public:
 
     void transformPipeline(QueryPipeline & pipeline) override;
 
+    void updateInputStream(DataStream input_stream);
+
     void describeActions(FormatSettings & settings) const override;
+
+    const ExpressionActionsPtr & getExpression() const { return expression; }
 
 private:
     ExpressionActionsPtr expression;
