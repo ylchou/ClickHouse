@@ -412,7 +412,7 @@ static void tryPushDownLimit(QueryPlanStepPtr & parent, QueryPlan::Node * child_
     parent.swap(child);
 }
 
-static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * child_node)
+static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * child_node, QueryPlan::Nodes & nodes)
 {
     auto & parent = parent_node->step;
     auto & child = child_node->step;
@@ -425,14 +425,35 @@ static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * 
     const auto & array_join = array_join_step->arrayJoin();
     const auto & expression = expression_step->getExpression();
 
-    /// Check array joined columns are not needed for expression.
-    for (const auto & column : expression->getRequiredColumnsWithTypes())
-        if (array_join->columns.count(column.name) != 0)
-            return;
+    auto split_actions = expression->splitActionsBeforeArrayJoin(array_join->columns);
 
-    expression_step->updateInputStream(child_node->children.at(0)->step->getOutputStream());
-    array_join_step->updateInputStream(expression_step->getOutputStream());
-    std::swap(parent, child);
+    /// No actions can be moved before ARRAY JOIN.
+    if (split_actions->getActions().empty())
+        return;
+
+    /// All actions was moved before ARRAY JOIN. Swap Expression and ArrayJoin.
+    if (expression->getActions().empty())
+    {
+        /// Expression -> ArrayJoin
+        std::swap(parent, child);
+        /// ArrayJoin -> Expression
+        child = std::make_unique<ExpressionStep>(child_node->children.at(0)->step->getOutputStream(),
+                                                 std::move(split_actions));
+
+        array_join_step->updateInputStream(child->getOutputStream());
+        return;
+    }
+
+    /// Add new expression step before ARRAY JOIN.
+    /// Expression -> ArrayJoin -> Something
+    auto & node = nodes.emplace_back();
+    node.children.swap(child_node->children);
+    child_node->children.emplace_back(&node);
+    /// Expression -> ArrayJoin -> node -> Something
+    node.step = std::make_unique<ExpressionStep>(node.children.at(0)->step->getOutputStream(),
+                                                 std::move(split_actions));
+    array_join_step->updateInputStream(node.step->getOutputStream());
+    expression_step->updateInputStream(array_join_step->getOutputStream());
 }
 
 void QueryPlan::optimize()
@@ -466,7 +487,7 @@ void QueryPlan::optimize()
         {
             /// First entrance, try lift up.
             if (frame.node->children.size() == 1)
-                tryLiftUpArrayJoin(frame.node, frame.node->children.front());
+                tryLiftUpArrayJoin(frame.node, frame.node->children.front(), nodes);
 
             stack.pop();
         }
