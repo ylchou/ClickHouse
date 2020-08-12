@@ -437,7 +437,7 @@ static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * 
     /// All actions was moved before ARRAY JOIN. Swap Expression and ArrayJoin.
     if (expression->getActions().empty())
     {
-        auto expected_header = expression_step->getOutputStream().header;
+        auto expected_header = parent->getOutputStream().header;
         /// Expression -> ArrayJoin
         std::swap(parent, child);
         /// ArrayJoin -> Expression
