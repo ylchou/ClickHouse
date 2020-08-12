@@ -1098,6 +1098,31 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
     Actions new_actions;
     for (auto & action : actions)
     {
+        if (action.type == ExpressionAction::PROJECT)
+        {
+            NamesWithAliases split_projection;
+            NamesWithAliases depend_projection;
+            for (auto & pair : action.projection)
+            {
+                if (array_join_dependent_columns.count(pair.first))
+                {
+                    if (!pair.second.empty())
+                        array_join_dependent_columns.insert(pair.second);
+                    depend_projection.emplace_back(std::move(pair));
+                }
+                else
+                    split_projection.emplace_back(std::move(pair));
+            }
+
+            if (!split_projection.empty())
+                split_actions->add(ExpressionAction::project(split_projection));
+
+            if (!depend_projection.empty())
+                new_actions.emplace_back(ExpressionAction::project(depend_projection));
+
+            continue;
+        }
+
         bool depends_on_array_join = false;
         for (auto & column : action.getNeededColumns())
             if (array_join_dependent_columns.count(column) != 0)
@@ -1115,30 +1140,31 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
         else
         {
             /// Replace PROJECT to ADD_ALIASES, because project may remove columns needed for array join
-            if (action.type == ExpressionAction::PROJECT)
-            {
-                NamesWithAliases projection;
+//            if (action.type == ExpressionAction::PROJECT)
+//            {
+//                NamesWithAliases projection;
+//
+//                for (auto & column : action.projection)
+//                {
+//                    if (!column.second.empty())
+//                    {
+//                        projection.emplace_back(column);
+//                        column.second.clear();
+//                    }
+//                }
+//
+//                /// new_actions.emplace_back(action);
+//
+//                if (!projection.empty())
+//                {
+//                    action.type = ExpressionAction::ADD_ALIASES;
+//                    action.projection.swap(projection);
+//                    split_actions->add(std::move(action));
+//                }
+//            }
+//            else
 
-                for (auto & column : action.projection)
-                {
-                    if (!column.second.empty())
-                    {
-                        projection.emplace_back(column);
-                        column.second.clear();
-                    }
-                }
-
-                /// new_actions.emplace_back(action);
-
-                if (!projection.empty())
-                {
-                    action.type = ExpressionAction::ADD_ALIASES;
-                    action.projection.swap(projection);
-                    split_actions->add(std::move(action));
-                }
-            }
-            else
-                split_actions->add(std::move(action));
+            split_actions->add(std::move(action));
         }
     }
 
