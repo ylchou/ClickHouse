@@ -1109,7 +1109,8 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
                     if (array_join_dependent_columns.count(pair.first))
                     {
                         array_join_dependent_columns.insert(pair.second);
-                        depend_aliases.emplace_back(std::move(pair));
+                        if (!pair.second.empty())
+                            depend_aliases.emplace_back(std::move(pair));
                     }
                     else if (!pair.second.empty())
                         split_aliases.emplace_back(std::move(pair));
