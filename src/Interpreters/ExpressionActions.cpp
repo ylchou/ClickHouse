@@ -1326,4 +1326,73 @@ std::string ExpressionActionsChain::dumpChain() const
     return ss.str();
 }
 
+ExpressionActionsChain::Step::Step(ArrayJoinActionPtr array_join_, ColumnsWithTypeAndName required_columns_)
+    : kind(Kind::ARRAY_JOIN)
+    , array_join(std::move(array_join_))
+    , columns_after_array_join(std::move(required_columns_))
+{
+    for (auto & column : columns_after_array_join)
+    {
+        required_columns.emplace_back(NameAndTypePair(column.name, column.type));
+
+        if (array_join->columns.count(column.name) > 0)
+        {
+            const auto * array = typeid_cast<const DataTypeArray *>(column.type.get());
+            column.type = array->getNestedType();
+            /// Arrays are materialized
+            column.column = nullptr;
+        }
+    }
+}
+
+void ExpressionActionsChain::Step::finalize(const Names & required_output_)
+{
+    switch (kind)
+    {
+        case Kind::ACTIONS:
+        {
+            actions->finalize(required_output_);
+            return;
+        }
+        case Kind::ARRAY_JOIN:
+        {
+            NamesAndTypesList new_required_columns;
+            ColumnsWithTypeAndName new_result_columns;
+
+            NameSet names(required_output_.begin(), required_output_.end());
+            for (const auto & column : columns_after_array_join)
+            {
+                if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
+                    new_result_columns.emplace_back(column);
+            }
+            for (const auto & column : required_columns)
+            {
+                if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
+                    new_required_columns.emplace_back(column);
+            }
+
+            std::swap(required_columns, new_required_columns);
+            std::swap(columns_after_array_join, new_result_columns);
+            return;
+        }
+    }
+}
+
+void ExpressionActionsChain::Step::prependProjectInput()
+{
+    switch (kind)
+    {
+        case Kind::ACTIONS:
+        {
+            actions->prependProjectInput();
+            return;
+        }
+        case Kind::ARRAY_JOIN:
+        {
+            /// TODO: remove unused columns before ARRAY JOIN ?
+            return;
+        }
+    }
+}
+
 }
