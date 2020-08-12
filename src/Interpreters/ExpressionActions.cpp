@@ -1096,13 +1096,13 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
     NameSet array_join_dependent_columns = array_joined_columns;
 
     Actions new_actions;
-    for (auto & action : actions)
+    for (const auto & action : actions)
     {
         if (action.type == ExpressionAction::PROJECT)
         {
             NamesWithAliases split_aliases;
             NamesWithAliases depend_aliases;
-            for (auto & pair : action.projection)
+            for (const auto & pair : action.projection)
             {
                 if (!pair.second.empty() || array_join_dependent_columns.count(pair.first))
                 {
@@ -1137,7 +1137,7 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
             if (action.array_join)
                 array_join_dependent_columns.insert(action.array_join->columns.begin(), action.array_join->columns.end());
 
-            new_actions.emplace_back(std::move(action));
+            new_actions.emplace_back(action);
         }
         else
         {
@@ -1166,17 +1166,23 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
 //            }
 //            else
 
-            split_actions->add(std::move(action));
+            split_actions->add(action);
         }
     }
+
+    if (split_actions->getActions().empty())
+        return split_actions;
 
     std::swap(actions, new_actions);
 
     /// Add input from split actions result.
-    input_columns = split_actions->getSampleBlock().getNamesAndTypesList();
+    NamesAndTypesList inputs_from_array_join;
     for (auto & column : input_columns)
         if (array_joined_columns.count(column.name))
-            column.type = typeid_cast<const DataTypeArray *>(column.type.get())->getNestedType();
+            inputs_from_array_join.emplace_back(std::move(column));
+
+    input_columns = split_actions->getSampleBlock().getNamesAndTypesList();
+    input_columns.insert(input_columns.end(), inputs_from_array_join.begin(), inputs_from_array_join.end());
 
     if (!actions.empty())
         prependProjectInput();
