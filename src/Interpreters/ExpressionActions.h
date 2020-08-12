@@ -334,7 +334,7 @@ struct ExpressionActionsChain
 
                 if (array_join->columns.count(column.name) > 0)
                 {
-                    const auto * array = assert_cast<const DataTypeArray *>(column.type.get());
+                    const auto * array = typeid_cast<const DataTypeArray *>(column.type.get());
                     column.type = array->getNestedType();
                     /// Arrays are materialized
                     column.column = nullptr;
