@@ -1113,10 +1113,37 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
             new_actions.emplace_back(std::move(action));
         }
         else
+        {
+            /// Replace PROJECT to ADD_ALIASES, because project may remove columns needed for array join
+            if (action.type == ExpressionAction::PROJECT)
+            {
+                NamesWithAliases projection;
+
+                for (auto & column : action.projection)
+                {
+                    if (!column.second.empty())
+                    {
+                        projection.emplace_back(column);
+                        column.second.clear();
+                    }
+                }
+
+                new_actions.emplace_back(action);
+
+                action.type = ExpressionAction::ADD_ALIASES;
+                action.projection.swap(projection);
+            }
             split_actions->add(std::move(action));
+        }
     }
 
     std::swap(actions, new_actions);
+
+    /// Add input from split actions result.
+    for (const auto & column : split_actions->getSampleBlock())
+        if (!input_columns.contains(column.name))
+            input_columns.emplace_back(NameAndTypePair{column.name, column.type});
+
     return split_actions;
 }
 
