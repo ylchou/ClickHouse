@@ -25,6 +25,8 @@ public:
     void describeActions(FormatSettings & settings) const override;
 
     const ExpressionActionsPtr & getExpression() const { return expression; }
+    const String & getFilterColumnName() const { return filter_column_name; }
+    bool removesFilterColumn() const { return remove_filter_column; }
 
 private:
     ExpressionActionsPtr expression;

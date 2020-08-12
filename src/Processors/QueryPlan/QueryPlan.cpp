@@ -448,11 +448,26 @@ static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * 
     }
 
     /// Add new expression step before ARRAY JOIN.
-    /// Expression -> ArrayJoin -> Something
+    /// Expression/Filter -> ArrayJoin -> Something
     auto & node = nodes.emplace_back();
     node.children.swap(child_node->children);
     child_node->children.emplace_back(&node);
-    /// Expression -> ArrayJoin -> node -> Something
+    /// Expression/Filter -> ArrayJoin -> node -> Something
+    if (filter_step && split_actions->getSampleBlock().has(filter_step->getFilterColumnName()))
+    {
+        /// Filter -> ArrayJoin -> node -> Something
+        node.step = std::make_unique<FilterStep>(node.children.at(0)->step->getOutputStream(),
+                                                 std::move(split_actions),
+                                                 filter_step->getFilterColumnName(),
+                                                 filter_step->removesFilterColumn());
+
+        array_join_step->updateInputStream(node.step->getOutputStream());
+
+        parent = std::make_unique<ExpressionStep>(array_join_step->getOutputStream(),
+                                                  filter_step->getExpression());
+        /// Expression -> ArrayJoin -> Filter -> Something
+    }
+
     node.step = std::make_unique<ExpressionStep>(node.children.at(0)->step->getOutputStream(),
                                                  std::move(split_actions));
     array_join_step->updateInputStream(node.step->getOutputStream());
