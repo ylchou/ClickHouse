@@ -1101,24 +1101,26 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
         if (action.type == ExpressionAction::PROJECT)
         {
             NamesWithAliases split_aliases;
-            NamesWithAliases depend_projection;
+            NamesWithAliases depend_aliases;
             for (auto & pair : action.projection)
             {
-                if (pair.second.empty() || array_join_dependent_columns.count(pair.first))
+                if (!pair.second.empty() || array_join_dependent_columns.count(pair.first))
                 {
-                    if (!pair.second.empty())
+                    if (array_join_dependent_columns.count(pair.first))
+                    {
                         array_join_dependent_columns.insert(pair.second);
-                    depend_projection.emplace_back(std::move(pair));
+                        depend_aliases.emplace_back(std::move(pair));
+                    }
+                    else
+                        split_aliases.emplace_back(std::move(pair));
                 }
-                else
-                    split_aliases.emplace_back(std::move(pair));
             }
 
             if (!split_aliases.empty())
                 split_actions->add(ExpressionAction::addAliases(split_aliases));
 
-            if (!depend_projection.empty())
-                new_actions.emplace_back(ExpressionAction::project(depend_projection));
+            if (!depend_aliases.empty())
+                new_actions.emplace_back(ExpressionAction::addAliases(depend_aliases));
 
             continue;
         }
@@ -1175,6 +1177,12 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
     for (auto & column : input_columns)
         if (array_joined_columns.count(column.name))
             column.type = typeid_cast<const DataTypeArray *>(column.type.get())->getNestedType();
+
+    if (!actions.empty())
+        prependProjectInput();
+
+    if (!split_actions->getActions().empty())
+        split_actions->prependProjectInput();
 
     return split_actions;
 }
