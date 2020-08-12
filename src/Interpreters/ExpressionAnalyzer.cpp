@@ -1120,7 +1120,7 @@ ExpressionAnalysisResult::ExpressionAnalysisResult(
             {
                 Block before_where_sample;
                 if (chain.steps.size() > 1)
-                    before_where_sample = chain.steps[chain.steps.size() - 2].actions->getSampleBlock();
+                    before_where_sample = Block(chain.steps[chain.steps.size() - 2].getResultColumns());
                 else
                     before_where_sample = source_header;
                 if (sanitizeBlock(before_where_sample))
