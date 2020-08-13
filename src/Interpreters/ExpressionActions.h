@@ -12,6 +12,8 @@
 #include <Interpreters/ArrayJoinAction.h>
 #include <DataTypes/DataTypeArray.h>
 
+#include <variant>
+
 #if !defined(ARCADIA_BUILD)
 #    include "config_core.h"
 #endif
@@ -202,8 +204,8 @@ public:
     Names getRequiredColumns() const
     {
         Names names;
-        for (NamesAndTypesList::const_iterator it = input_columns.begin(); it != input_columns.end(); ++it)
-            names.push_back(it->name);
+        for (const auto & input : input_columns)
+            names.push_back(input.name);
         return names;
     }
 
@@ -294,21 +296,36 @@ struct ExpressionActionsChain
 {
     explicit ExpressionActionsChain(const Context & context_) : context(context_) {}
 
-    struct Step
+    struct ExpressionActionsLink
     {
-        enum class Kind
-        {
-            ACTIONS,
-            ARRAY_JOIN,
-        };
+        ExpressionActionsPtr actions;
 
-        Kind kind;
+        const NamesAndTypesList & getRequiredColumns() const { return actions->getRequiredColumnsWithTypes(); }
+        const ColumnsWithTypeAndName & getResultColumns() const { return actions->getSampleBlock().getColumnsWithTypeAndName(); }
+        void finalize(const Names & required_output_) const { actions->finalize(required_output_); }
+        void prependProjectInput() const { actions->prependProjectInput(); }
+        std::string dump() const { return actions->dumpActions(); }
+    };
 
+    struct ArrayJoinLink
+    {
         ArrayJoinActionPtr array_join;
         NamesAndTypesList required_columns;
-        ColumnsWithTypeAndName columns_after_array_join;
+        ColumnsWithTypeAndName result_columns;
 
-        ExpressionActionsPtr actions;
+        ArrayJoinLink(ArrayJoinActionPtr array_join_, ColumnsWithTypeAndName required_columns_);
+
+        const NamesAndTypesList & getRequiredColumns() const { return required_columns; }
+        const ColumnsWithTypeAndName & getResultColumns() const { return result_columns; }
+        void finalize(const Names & required_output_);
+        void prependProjectInput() const {} /// TODO: remove unused columns before ARRAY JOIN ?
+        static std::string dump() { return "ARRAY JOIN"; }
+    };
+
+    struct Step
+    {
+        std::variant<ExpressionActionsLink, ArrayJoinLink> link;
+
         /// Columns were added to the block before current step in addition to prev step output.
         NameSet additional_input;
         /// Columns which are required in the result of current step.
@@ -319,61 +336,27 @@ struct ExpressionActionsChain
         std::vector<bool> can_remove_required_output;
 
     public:
-        explicit Step(const ExpressionActionsPtr & actions_ = nullptr, const Names & required_output_ = Names())
-            : kind(Kind::ACTIONS)
-            , actions(actions_)
+        explicit Step(ExpressionActionsPtr actions, const Names & required_output_ = Names())
+            : link(ExpressionActionsLink{std::move(actions)})
             , required_output(required_output_)
         {
         }
 
-        explicit Step(ArrayJoinActionPtr array_join_, ColumnsWithTypeAndName required_columns_);
-
-        NamesAndTypesList getRequiredColumns() const
+        explicit Step(ArrayJoinActionPtr array_join, ColumnsWithTypeAndName required_columns)
+            : link(ArrayJoinLink(std::move(array_join), std::move(required_columns)))
         {
-            switch (kind)
-            {
-                case Kind::ACTIONS:
-                    return actions->getRequiredColumnsWithTypes();
-                case Kind::ARRAY_JOIN:
-                    return required_columns;
-            }
-
-            __builtin_unreachable();
         }
 
-        ColumnsWithTypeAndName getResultColumns() const
-        {
-            switch (kind)
-            {
-                case Kind::ACTIONS:
-                    return actions->getSampleBlock().getColumnsWithTypeAndName();
-                case Kind::ARRAY_JOIN:
-                    return columns_after_array_join;
-            }
-
-            __builtin_unreachable();
-        }
-
+        const NamesAndTypesList & getRequiredColumns() const;
+        const ColumnsWithTypeAndName & getResultColumns() const;
+        /// Remove unused result and update required columns
         void finalize(const Names & required_output_);
-
+        /// Add projections to expression
         void prependProjectInput() const;
+        std::string dump() const;
 
-        std::string dump() const
-        {
-            switch (kind)
-            {
-                case Kind::ACTIONS:
-                {
-                    return actions->dumpActions();
-                }
-                case Kind::ARRAY_JOIN:
-                {
-                    return "ARRAY JOIN";
-                }
-            }
-
-            __builtin_unreachable();
-        }
+        ExpressionActionsPtr & actions() { return std::get<ExpressionActionsLink>(link).actions; }
+        const ExpressionActionsPtr & actions() const { return std::get<ExpressionActionsLink>(link).actions; }
     };
 
     using Steps = std::vector<Step>;
@@ -399,7 +382,7 @@ struct ExpressionActionsChain
             throw Exception("Empty ExpressionActionsChain", ErrorCodes::LOGICAL_ERROR);
         }
 
-        return steps.back().actions;
+        return steps.back().actions();
     }
 
     Step & getLastStep()

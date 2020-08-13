@@ -9,11 +9,9 @@
 #include <Common/typeid_cast.h>
 #include <DataTypes/DataTypeArray.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <Functions/FunctionFactory.h>
 #include <Functions/IFunction.h>
 #include <optional>
 #include <Columns/ColumnSet.h>
-#include <Functions/FunctionHelpers.h>
 
 #if !defined(ARCADIA_BUILD)
 #    include "config_core.h"
@@ -1452,12 +1450,11 @@ std::string ExpressionActionsChain::dumpChain() const
     return ss.str();
 }
 
-ExpressionActionsChain::Step::Step(ArrayJoinActionPtr array_join_, ColumnsWithTypeAndName required_columns_)
-    : kind(Kind::ARRAY_JOIN)
-    , array_join(std::move(array_join_))
-    , columns_after_array_join(std::move(required_columns_))
+ExpressionActionsChain::ArrayJoinLink::ArrayJoinLink(ArrayJoinActionPtr array_join_, ColumnsWithTypeAndName required_columns_)
+    : array_join(std::move(array_join_))
+    , result_columns(std::move(required_columns_))
 {
-    for (auto & column : columns_after_array_join)
+    for (auto & column : result_columns)
     {
         required_columns.emplace_back(NameAndTypePair(column.name, column.type));
 
@@ -1471,54 +1468,63 @@ ExpressionActionsChain::Step::Step(ArrayJoinActionPtr array_join_, ColumnsWithTy
     }
 }
 
+void ExpressionActionsChain::ArrayJoinLink::finalize(const Names & required_output_)
+{
+    NamesAndTypesList new_required_columns;
+    ColumnsWithTypeAndName new_result_columns;
+
+    NameSet names(required_output_.begin(), required_output_.end());
+    for (const auto & column : result_columns)
+    {
+        if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
+            new_result_columns.emplace_back(column);
+    }
+    for (const auto & column : required_columns)
+    {
+        if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
+            new_required_columns.emplace_back(column);
+    }
+
+    std::swap(required_columns, new_required_columns);
+    std::swap(result_columns, new_result_columns);
+}
+
+template <typename Res, typename Ptr, typename Callback>
+static Res dispatch(Ptr * ptr, Callback && callback)
+{
+    if (std::holds_alternative<ExpressionActionsChain::ExpressionActionsLink>(ptr->link))
+        return callback(std::get<ExpressionActionsChain::ExpressionActionsLink>(ptr->link));
+    if (std::holds_alternative<ExpressionActionsChain::ArrayJoinLink>(ptr->link))
+        return callback(std::get<ExpressionActionsChain::ArrayJoinLink>(ptr->link));
+
+    throw Exception("Unknown variant in ExpressionActionsChain step", ErrorCodes::LOGICAL_ERROR);
+}
+
+const NamesAndTypesList & ExpressionActionsChain::Step::getRequiredColumns() const
+{
+    using Res = const NamesAndTypesList &;
+    return dispatch<Res>(this, [](auto & x) -> Res { return x.getRequiredColumns(); });
+}
+
+const ColumnsWithTypeAndName & ExpressionActionsChain::Step::getResultColumns() const
+{
+    using Res = const ColumnsWithTypeAndName &;
+    return dispatch<Res>(this, [](auto & x) -> Res{ return x.getResultColumns(); });
+}
+
 void ExpressionActionsChain::Step::finalize(const Names & required_output_)
 {
-    switch (kind)
-    {
-        case Kind::ACTIONS:
-        {
-            actions->finalize(required_output_);
-            return;
-        }
-        case Kind::ARRAY_JOIN:
-        {
-            NamesAndTypesList new_required_columns;
-            ColumnsWithTypeAndName new_result_columns;
-
-            NameSet names(required_output_.begin(), required_output_.end());
-            for (const auto & column : columns_after_array_join)
-            {
-                if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
-                    new_result_columns.emplace_back(column);
-            }
-            for (const auto & column : required_columns)
-            {
-                if (array_join->columns.count(column.name) != 0 || names.count(column.name) != 0)
-                    new_required_columns.emplace_back(column);
-            }
-
-            std::swap(required_columns, new_required_columns);
-            std::swap(columns_after_array_join, new_result_columns);
-            return;
-        }
-    }
+    dispatch<void>(this, [&required_output_](auto & x) { x.finalize(required_output_); });
 }
 
 void ExpressionActionsChain::Step::prependProjectInput() const
 {
-    switch (kind)
-    {
-        case Kind::ACTIONS:
-        {
-            actions->prependProjectInput();
-            return;
-        }
-        case Kind::ARRAY_JOIN:
-        {
-            /// TODO: remove unused columns before ARRAY JOIN ?
-            return;
-        }
-    }
+    dispatch<void>(this, [](auto & x) { x.prependProjectInput(); });
+}
+
+std::string ExpressionActionsChain::Step::dump() const
+{
+    return dispatch<std::string>(this, [](auto & x) { return x.dump(); });
 }
 
 }
