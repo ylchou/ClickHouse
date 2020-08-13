@@ -1094,6 +1094,9 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
     }
 
     NameSet array_join_dependent_columns = array_joined_columns;
+    /// Columns needed to evaluate arrayJoin or those that depend on it.
+    /// Actions to delete them can not be moved to the left of the arrayJoin.
+    NameSet array_join_dependencies;
 
     Actions new_actions;
     for (const auto & action : actions)
@@ -1126,6 +1129,14 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
             continue;
         }
 
+        if (action.type == ExpressionAction::REMOVE_COLUMN)
+        {
+            if (array_join_dependencies.count(action.source_name))
+                new_actions.emplace_back(action);
+            else
+                split_actions->add(action);
+        }
+
         bool depends_on_array_join = false;
         for (auto & column : action.getNeededColumns())
             if (array_join_dependent_columns.count(column) != 0)
@@ -1138,6 +1149,8 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
             if (action.array_join)
                 array_join_dependent_columns.insert(action.array_join->columns.begin(), action.array_join->columns.end());
 
+            auto needed = action.getNeededColumns();
+            array_join_dependencies.insert(needed.begin(), needed.end());
             new_actions.emplace_back(action);
         }
         else
