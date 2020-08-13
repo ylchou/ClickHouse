@@ -1129,14 +1129,6 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
             continue;
         }
 
-        if (action.type == ExpressionAction::REMOVE_COLUMN)
-        {
-            if (array_join_dependencies.count(action.source_name))
-                new_actions.emplace_back(action);
-            else
-                split_actions->add(action);
-        }
-
         bool depends_on_array_join = false;
         for (auto & column : action.getNeededColumns())
             if (array_join_dependent_columns.count(column) != 0)
@@ -1179,6 +1171,16 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
 //                }
 //            }
 //            else
+
+            if (action.type == ExpressionAction::REMOVE_COLUMN)
+            {
+                if (array_join_dependencies.count(action.source_name))
+                    new_actions.emplace_back(action);
+                else
+                    split_actions->add(action);
+
+                continue;
+            }
 
             split_actions->add(action);
         }
