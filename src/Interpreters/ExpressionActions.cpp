@@ -1510,7 +1510,7 @@ void ExpressionActionsChain::Step::finalize(const Names & required_output_)
     }
 }
 
-void ExpressionActionsChain::Step::prependProjectInput()
+void ExpressionActionsChain::Step::prependProjectInput() const
 {
     switch (kind)
     {

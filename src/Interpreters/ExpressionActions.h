@@ -355,7 +355,7 @@ struct ExpressionActionsChain
 
         void finalize(const Names & required_output_);
 
-        void prependProjectInput();
+        void prependProjectInput() const;
 
         std::string dump() const
         {
@@ -370,6 +370,8 @@ struct ExpressionActionsChain
                     return "ARRAY JOIN";
                 }
             }
+
+            __builtin_unreachable();
         }
     };
 
