@@ -434,10 +434,11 @@ static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * 
     if (split_actions->getActions().empty())
         return;
 
+    auto expected_header = parent->getOutputStream().header;
+
     /// All actions was moved before ARRAY JOIN. Swap Expression and ArrayJoin.
     if (expression->getActions().empty())
     {
-        auto expected_header = parent->getOutputStream().header;
         /// Expression -> ArrayJoin
         std::swap(parent, child);
         /// ArrayJoin -> Expression
@@ -478,8 +479,8 @@ static void tryLiftUpArrayJoin(QueryPlan::Node * parent_node, QueryPlan::Node * 
     node.step = std::make_unique<ExpressionStep>(node.children.at(0)->step->getOutputStream(),
                                                  std::move(split_actions));
     array_join_step->updateInputStream(node.step->getOutputStream(), {});
-    expression_step ? expression_step->updateInputStream(array_join_step->getOutputStream())
-                    : filter_step->updateInputStream(array_join_step->getOutputStream());
+    expression_step ? expression_step->updateInputStream(array_join_step->getOutputStream(), expected_header)
+                    : filter_step->updateInputStream(array_join_step->getOutputStream(), expected_header);
 }
 
 void QueryPlan::optimize()

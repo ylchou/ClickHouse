@@ -1,6 +1,7 @@
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/QueryPipeline.h>
+#include <Processors/Transforms/ConvertingTransform.h>
 #include <Processors/Transforms/InflatingExpressionTransform.h>
 #include <Interpreters/ExpressionActions.h>
 #include <IO/Operators.h>
@@ -35,7 +36,7 @@ ExpressionStep::ExpressionStep(const DataStream & input_stream_, ExpressionActio
     updateDistinctColumns(output_stream->header, output_stream->distinct_columns);
 }
 
-void ExpressionStep::updateInputStream(DataStream input_stream)
+void ExpressionStep::updateInputStream(DataStream input_stream, Block result_header)
 {
     output_stream = createOutputStream(
             input_stream,
@@ -44,6 +45,7 @@ void ExpressionStep::updateInputStream(DataStream input_stream)
 
     input_streams.clear();
     input_streams.emplace_back(std::move(input_stream));
+    res_header = std::move(result_header);
 }
 
 void ExpressionStep::transformPipeline(QueryPipeline & pipeline)
@@ -53,6 +55,14 @@ void ExpressionStep::transformPipeline(QueryPipeline & pipeline)
         bool on_totals = stream_type == QueryPipeline::StreamType::Totals;
         return std::make_shared<Transform>(header, expression, on_totals);
     });
+
+    if (res_header && !blocksHaveEqualStructure(res_header, output_stream->header))
+    {
+        pipeline.addSimpleTransform([&](const Block & header)
+        {
+            return std::make_shared<ConvertingTransform>(header, res_header, ConvertingTransform::MatchColumnsMode::Name);
+        });
+    }
 }
 
 static void doDescribeActions(const ExpressionActionsPtr & expression, IQueryPlanStep::FormatSettings & settings)
