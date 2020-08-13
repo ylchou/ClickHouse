@@ -45,7 +45,7 @@ void FilterStep::updateInputStream(DataStream input_stream, Block result_header)
 {
     output_stream = createOutputStream(
             input_stream,
-            FilterTransform::transformHeader(input_stream.header, expression, filter_column_name, remove_filter_column),
+            res_header ? res_header : FilterTransform::transformHeader(input_stream.header, expression, filter_column_name, remove_filter_column),
             getDataStreamTraits());
 
     input_streams.clear();

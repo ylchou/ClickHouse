@@ -40,7 +40,7 @@ void ExpressionStep::updateInputStream(DataStream input_stream, Block result_hea
 {
     output_stream = createOutputStream(
             input_stream,
-            Transform::transformHeader(input_stream.header, expression),
+            res_header ? res_header : Transform::transformHeader(input_stream.header, expression),
             getDataStreamTraits());
 
     input_streams.clear();

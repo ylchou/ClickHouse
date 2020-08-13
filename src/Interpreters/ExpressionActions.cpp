@@ -1093,6 +1093,10 @@ ExpressionActionsPtr ExpressionActions::splitActionsBeforeArrayJoin(const NameSe
         }
     }
 
+    /// Do not split action if input depends only on array joined columns.
+    if (split_actions->input_columns.empty())
+        return split_actions;
+
     NameSet array_join_dependent_columns = array_joined_columns;
     /// Columns needed to evaluate arrayJoin or those that depend on it.
     /// Actions to delete them can not be moved to the left of the arrayJoin.
