@@ -180,7 +180,11 @@ void ExpressionAnalyzer::analyzeAggregation()
         {
             getRootActionsNoMakeSet(array_join_expression_list, true, temp_actions, false);
             if (auto array_join = addMultipleArrayJoinAction(temp_actions, is_array_join_left))
-                temp_actions->add(ExpressionAction::arrayJoin(array_join));
+            {
+                auto sample_block = temp_actions->getSampleBlock();
+                array_join->prepare(sample_block);
+                temp_actions = std::make_shared<ExpressionActions>(sample_block.getColumnsWithTypeAndName(), context);
+            }
 
             for (auto & column : temp_actions->getSampleBlock().getNamesAndTypesList())
                 if (syntax->array_join_result_to_source.count(column.name))
